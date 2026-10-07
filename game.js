@@ -894,6 +894,27 @@ const touchMove = { x: 0, y: 0 };
 let stickId = null, stickCX = 0, stickCY = 0;
 let lookId = null, lookLX = 0, lookLY = 0;
 const STICK_R = 48;
+const LOOK_R = 48;
+const lookStick = { x: 0, y: 0 };
+function moveLookStick(t) {
+  let dx = t.clientX - lookLX, dy = t.clientY - lookLY;
+  const len = Math.hypot(dx, dy);
+  if (len > LOOK_R) { dx = dx / len * LOOK_R; dy = dy / len * LOOK_R; }
+  if (Math.hypot(dx, dy) < LOOK_R * 0.18) { dx = 0; dy = 0; }
+  document.getElementById('look-knob').style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+  lookStick.x = dx / LOOK_R; lookStick.y = dy / LOOK_R;
+}
+function showLookBase(x, y) {
+  const base = document.getElementById('look-zone');
+  base.style.left = (x - 64) + 'px';
+  base.style.top = (y - 64) + 'px';
+  base.style.display = 'block';
+  document.getElementById('look-knob').style.transform = '';
+}
+function hideLookBase() {
+  document.getElementById('look-zone').style.display = 'none';
+  lookStick.x = 0; lookStick.y = 0;
+}
 function stickCenter() {
   const r = document.getElementById('stick-zone').getBoundingClientRect();
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
@@ -944,25 +965,26 @@ if (TOUCH_MODE) {
   stickZone.addEventListener('touchend', stickEnd);
   stickZone.addEventListener('touchcancel', stickEnd);
   renderer.domElement.addEventListener('touchstart', e => {
-    if (game.state !== 'playing') return;
+    if (game.state !== 'playing' || gyroOn) return;
     for (const t of e.changedTouches) {
-      if (lookId === null) { lookId = t.identifier; lookLX = t.clientX; lookLY = t.clientY; }
+      if (lookId === null) {
+        lookId = t.identifier; lookLX = t.clientX; lookLY = t.clientY;
+        showLookBase(t.clientX, t.clientY);
+        moveLookStick(t);
+      }
     }
   }, { passive: true });
   renderer.domElement.addEventListener('touchmove', e => {
     if (game.state !== 'playing' || gyroOn) return;
     e.preventDefault();
     for (const t of e.changedTouches) {
-      if (t.identifier === lookId) {
-        player.yaw -= (t.clientX - lookLX) * 0.005 * player.sens;
-        player.pitch -= (t.clientY - lookLY) * 0.005 * player.sens;
-        player.pitch = Math.max(-1.2, Math.min(1.2, player.pitch));
-        lookLX = t.clientX; lookLY = t.clientY;
-      }
+      if (t.identifier === lookId) moveLookStick(t);
     }
   }, { passive: false });
   const lookEnd = e => {
-    for (const t of e.changedTouches) if (t.identifier === lookId) lookId = null;
+    for (const t of e.changedTouches) {
+      if (t.identifier === lookId) { lookId = null; hideLookBase(); }
+    }
   };
   renderer.domElement.addEventListener('touchend', lookEnd);
   renderer.domElement.addEventListener('touchcancel', lookEnd);
@@ -1015,6 +1037,11 @@ function updatePlayer(dt) {
   } else {
     player.stamina = Math.min(100, player.stamina + (player.moving ? 14 : 22) * dt);
     if (player.stamina >= 25) player.exhausted = false;
+  }
+  if (lookStick.x !== 0 || lookStick.y !== 0) {
+    player.yaw -= lookStick.x * 2.4 * dt * player.sens;
+    player.pitch -= lookStick.y * 1.8 * dt * player.sens;
+    player.pitch = Math.max(-1.2, Math.min(1.2, player.pitch));
   }
   const inTunnel = Math.round(worldToGrid(player.x, player.z).y) === TUNNEL_ROW;
   const spd = player.speed * (sprinting ? 1.35 : 1) * (inTunnel ? 1.15 : 1) * TILE;
@@ -2335,4 +2362,5 @@ window.addEventListener('blur', () => {
   if (sb) sb.classList.remove('active');
   if (stickId !== null) resetStick();
   lookId = null;
+  hideLookBase();
 });
