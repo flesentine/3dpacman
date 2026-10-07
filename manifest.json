@@ -1,0 +1,14 @@
+{
+  "name": "PAC-MAN 3D — First Person",
+  "short_name": "PAC-MAN 3D",
+  "description": "First-person Pac-Man 3D maze chase.",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#000005",
+  "theme_color": "#000005",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

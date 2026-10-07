@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>PAC-MAN 3D — First Person</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23ffe600'/%3E%3Cpolygon points='16,16 30,9 30,23' fill='%23000'/%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#000005">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', monospace; overscroll-behavior: none; }
+  #game-container, #game-container canvas, .overlay { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  #game-container { position: fixed; inset: 0; }
+  canvas { display: block; }
+  #game-container canvas { touch-action: none; }
+  #touch-ui { display: none; }
+  body.touch #touch-ui { display: block; }
+  #stick-zone { position: fixed; left: 26px; bottom: 76px; width: 128px; height: 128px; z-index: 15;
+    border: 2px solid rgba(255,230,0,0.4); border-radius: 50%; background: rgba(255,255,255,0.04);
+    pointer-events: auto; touch-action: none; }
+  #stick-knob { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px;
+    border-radius: 50%; background: rgba(255,230,0,0.55); }
+  #touch-pause { position: fixed; right: 24px; bottom: 24px; z-index: 15; width: 52px; height: 52px;
+    border-radius: 50%; border: 2px solid #8af; background: rgba(0,0,20,0.6); color: #8af;
+    font-size: 18px; font-family: inherit; pointer-events: auto; }
+  #touch-gyro { position: fixed; right: 88px; bottom: 24px; z-index: 15; width: 52px; height: 52px;
+    border-radius: 50%; border: 2px solid #8af; background: rgba(0,0,20,0.6); color: #8af;
+    font-size: 11px; font-weight: bold; font-family: inherit; letter-spacing: 1px;
+    pointer-events: auto; touch-action: none; }
+  #touch-gyro.active { background: rgba(136,170,255,0.35); box-shadow: 0 0 12px #8af; }
+  #touch-instructions { display: none; }
+  body.touch #touch-instructions { display: block; }
+  body.touch #desktop-instructions { display: none; }
+
+  /* HUD */
+  #hud {
+    position: fixed; inset: 0; pointer-events: none; z-index: 10;
+    color: #fff; text-shadow: 0 0 6px #000, 0 0 12px #000;
+  }
+  #score-box { position: absolute; top: 18px; left: 24px; }
+  #score-box .label, #level-box .label { font-size: 13px; letter-spacing: 3px; color: #8af; }
+  #score-val { font-size: 30px; font-weight: bold; color: #fcfc00; }
+  #level-box { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); text-align: center; }
+  #level-val { font-size: 24px; font-weight: bold; color: #fcfc00; }
+  #lives-box { position: absolute; bottom: 20px; left: 24px; display: flex; gap: 8px; align-items: center; }
+  #lives-box .label { font-size: 13px; letter-spacing: 3px; color: #8af; margin-right: 6px; }
+  #lives-icons canvas { image-rendering: pixelated; image-rendering: crisp-edges; height: 22px; }
+  #minimap { position: absolute; top: 18px; right: 24px; width: 128px; height: 141px;
+    border: 2px solid #224; border-radius: 4px; background: rgba(0,0,10,0.68); opacity: .72; }
+  #volume-box { position: absolute; bottom: 52px; right: 24px; pointer-events: auto; }
+  #credit-box { position: absolute; bottom: 78px; right: 24px; }
+  #volume-slider { width: 110px; accent-color: #fcfc00; }
+  #mute-indicator { position: absolute; bottom: 20px; right: 24px; display: none;
+    font-size: 13px; letter-spacing: 3px; color: #f66; border: 1px solid #f66; border-radius: 4px; padding: 4px 8px; }
+  #stamina-box { position: absolute; top: 66px; left: 50%; transform: translateX(-50%);
+    width: 200px; height: 6px; border: 1px solid #8af; border-radius: 3px; background: rgba(0,0,20,.5); }
+  #stamina-bar { height: 100%; width: 100%; background: #fcfc00; border-radius: 2px; }
+  #sens-flash { position: fixed; top: 104px; left: 50%; transform: translateX(-50%); z-index: 11;
+    font-size: 15px; letter-spacing: 2px; color: #8af; opacity: 0; transition: opacity .3s;
+    pointer-events: none; text-shadow: 0 0 6px #000; }
+  #touch-sprint { position: fixed; right: 24px; bottom: 96px; z-index: 15; width: 64px; height: 64px;
+    border-radius: 50%; border: 2px solid #fcfc00; background: rgba(20,20,0,0.5); color: #fcfc00;
+    font-size: 13px; font-weight: bold; font-family: inherit; letter-spacing: 1px;
+    pointer-events: auto; touch-action: none; }
+  #touch-sprint.active { background: rgba(252,252,0,0.35); box-shadow: 0 0 12px #fcfc00; }
+
+  /* Mobile: safe areas + narrow-screen reflow */
+  #stick-zone { left: calc(26px + env(safe-area-inset-left)); bottom: calc(76px + env(safe-area-inset-bottom)); }
+  #touch-pause { right: calc(24px + env(safe-area-inset-right)); bottom: calc(24px + env(safe-area-inset-bottom)); }
+  #touch-sprint { right: calc(24px + env(safe-area-inset-right)); }
+  #touch-gyro { right: calc(88px + env(safe-area-inset-right)); bottom: calc(24px + env(safe-area-inset-bottom)); }
+  #lives-box { left: calc(24px + env(safe-area-inset-left)); bottom: calc(20px + env(safe-area-inset-bottom)); }
+  #minimap { top: calc(18px + env(safe-area-inset-top)); right: calc(24px + env(safe-area-inset-right)); }
+  #score-box { top: calc(18px + env(safe-area-inset-top)); left: calc(24px + env(safe-area-inset-left)); }
+  #level-box { top: calc(18px + env(safe-area-inset-top)); }
+  #volume-box { right: calc(24px + env(safe-area-inset-right)); }
+  #mute-indicator { right: calc(24px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); }
+  #credit-box { right: calc(24px + env(safe-area-inset-right)); }
+  @media (max-width: 500px) {
+    #volume-slider { width: 80px; }
+    #volume-box { bottom: auto; top: 128px; left: 24px; right: auto; }
+    #credit-box { bottom: auto; top: 134px; }
+    #mute-indicator { bottom: 88px; }
+    #lives-box { bottom: 8px; }
+    #minimap { width: 96px; height: 106px; opacity: .66; }
+    #stamina-box { width: 140px; }
+  }
+
+  /* Chomp overlay (your Pac-Man mouth) */
+  #chomp { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); z-index: 9; pointer-events: none; }
+  #hud canvas, #center-msg canvas, #behind-warn canvas, #sens-flash canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
+  #center-msg canvas { filter: drop-shadow(0 0 6px #fcfc00); }
+
+  #behind-warn { position: fixed; bottom: 132px; left: 50%; transform: translateX(-50%);
+    z-index: 11; pointer-events: none; opacity: 0; transition: opacity .2s;
+    font-size: 20px; font-weight: bold; letter-spacing: 4px; color: #f44;
+    text-shadow: 0 0 10px #f00, 0 0 6px #000; }
+  /* Center messages */
+  #center-msg {
+    position: fixed; top: 38%; left: 50%; transform: translate(-50%,-50%);
+    z-index: 11; pointer-events: none; text-align: center;
+    font-size: 42px; font-weight: bold; letter-spacing: 6px; color: #fcfc00;
+    text-shadow: 0 0 18px #fcfc00, 0 0 40px #f80; opacity: 0; transition: opacity .3s;
+  }
+
+  /* Overlays */
+  .overlay {
+    position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    background: radial-gradient(ellipse at center, rgba(10,10,40,0.92), rgba(0,0,0,0.97));
+    color: #fff; cursor: pointer;
+  }
+  .overlay h1 {
+    font-size: 48px; letter-spacing: 8px; color: #fcfc00;
+    text-shadow: 0 0 20px #fcfc00, 0 0 60px #f80; margin-bottom: 8px;
+  }
+  .overlay h2 { font-size: 16px; letter-spacing: 4px; color: #8af; margin-bottom: 24px; font-weight: normal; }
+  .overlay .instructions { font-size: 15px; line-height: 2; color: #ccd; margin-bottom: 36px; }
+  .overlay .instructions.pixel-lines { display: flex; flex-direction: column; align-items: center; gap: 5px; line-height: 1; }
+  .pixel-line { display: block; line-height: 1; white-space: nowrap; }
+  .overlay .instructions b { color: #fcfc00; }
+  .overlay .blink { font-size: 18px; letter-spacing: 4px; color: #fff; animation: blink 1.1s steps(2) infinite; }
+  .overlay .final { font-size: 26px; color: #fcfc00; margin-bottom: 24px; letter-spacing: 2px; }
+  #gameover-title canvas { filter: drop-shadow(0 0 10px #fc0000); }
+  #gameover-score canvas { filter: drop-shadow(0 0 5px #fcfc00); }
+  #start-screen h1 canvas { filter: drop-shadow(0 0 10px #fcfc00); }
+  #start-screen h2 canvas { filter: drop-shadow(0 0 4px #8af); }
+  #start-screen .blink canvas { filter: drop-shadow(0 0 5px #fff); }
+  canvas[data-rom-pixel] { image-rendering: pixelated; image-rendering: crisp-edges; vertical-align: middle; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .hidden { display: none !important; }
+  @media (prefers-reduced-motion: reduce) {
+    .overlay .blink { animation: none; }
+    .overlay.crt::before { animation: none; }
+    .overlay.crt .crt-band { display: none; }
+  }
+
+  /* CRT treatment for menu screens */
+  .overlay.crt { overflow: hidden; }
+  .overlay.crt::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 30;
+    background: repeating-linear-gradient(to bottom, rgba(0,0,0,0.22) 0 1px, transparent 1px 3px);
+    animation: crt-flicker 4s infinite steps(60);
+  }
+  .overlay.crt::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 31;
+    background:
+      repeating-linear-gradient(to right, rgba(255,0,80,0.06) 0 1px, rgba(0,255,80,0.05) 1px 2px, rgba(80,0,255,0.06) 2px 3px),
+      radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.5) 100%);
+    box-shadow: inset 0 0 120px rgba(0,0,0,0.65);
+  }
+  .overlay.crt .crt-band {
+    position: absolute; left: 0; right: 0; height: 90px; top: -100px; z-index: 32; pointer-events: none;
+    background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.05), transparent);
+    animation: crt-roll 7s linear infinite;
+  }
+  @keyframes crt-flicker { 0%,100% { opacity: 1; } 50% { opacity: 0.94; } }
+  @keyframes crt-roll { to { transform: translateY(120vh); } }
+
+  #vignette { position: fixed; inset: 0; pointer-events: none; z-index: 5;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%); }
+  #damage-flash { position: fixed; inset: 0; pointer-events: none; z-index: 6; background: rgba(255,0,0,0); transition: background .15s; }
+  #power-tint { position: fixed; inset: 0; pointer-events: none; z-index: 4; opacity: 0; transition: opacity .4s;
+    background: radial-gradient(ellipse at center, rgba(40,60,255,0.06) 40%, rgba(40,60,255,0.28) 100%); }
+  #danger-vignette { position: fixed; inset: 0; pointer-events: none; z-index: 4; opacity: 0; transition: opacity .25s;
+    background: radial-gradient(ellipse at center, transparent 45%, rgba(255,20,20,0.55) 100%); }
+  #fright-flash { position: fixed; inset: 0; pointer-events: none; z-index: 5; opacity: 0;
+    background: radial-gradient(ellipse at center, rgba(80,120,255,0.25) 0%, rgba(40,60,255,0.45) 100%); }
+  #danger-left, #danger-right { position: fixed; top: 0; bottom: 0; width: 17%; pointer-events: none; z-index: 7; opacity: 0; transition: opacity .08s linear; }
+  #danger-left { left: 0; background: linear-gradient(to right, rgba(255,20,20,0.55), transparent); }
+  #danger-right { right: 0; background: linear-gradient(to left, rgba(255,20,20,0.55), transparent); }
+  #radar { position: fixed; bottom: 132px; left: 50%; transform: translateX(-50%); z-index: 9;
+    pointer-events: none; opacity: 0; }
+  #radar-arrow { width: 0; height: 0; margin: 0 auto;
+    border-left: 9px solid transparent; border-right: 9px solid transparent;
+    border-bottom: 16px solid #fcfc00; filter: drop-shadow(0 0 4px #fcfc00); }
+  .menu-btn {
+    pointer-events: auto; margin-top: 28px; padding: 12px 34px;
+    font-family: inherit; font-size: 18px; letter-spacing: 3px; font-weight: bold;
+    color: #fcfc00; background: transparent; border: 2px solid #fcfc00; border-radius: 6px;
+    cursor: pointer; text-shadow: 0 0 8px #fcfc00;
+  }
+  .menu-btn:hover { background: rgba(255,230,0,0.15); }
+</style>
+</head>
+<body>
+  <div id="game-container"></div>
+  <div id="power-tint"></div>
+  <div id="danger-vignette"></div>
+  <div id="fright-flash"></div>
+  <div id="danger-left"></div>
+  <div id="danger-right"></div>
+  <div id="radar"><div id="radar-arrow"></div></div>
+  <div id="vignette"></div>
+  <div id="damage-flash"></div>
+
+  <div id="hud">
+    <div id="score-box">
+      <div class="label">1UP</div>
+      <div id="score-val">0</div>
+      <div class="label" style="margin-top:8px">HIGH</div>
+      <div id="high-val" style="font-size:18px;font-weight:bold;color:#8af">0</div>
+    </div>
+    <div id="level-box">
+      <div class="label">LEVEL</div>
+      <div id="level-val">1</div>
+      <div class="label" style="margin-top:8px">LEFT</div>
+      <div id="left-val" style="font-size:18px;font-weight:bold;color:#fcfc00">184</div>
+    </div>
+    <div id="stamina-box"><div id="stamina-bar"></div></div>
+    <div id="sens-flash"></div>
+    <div id="lives-box">
+      <span class="label">LIVES</span>
+      <span id="lives-icons"></span>
+    </div>
+    <canvas id="minimap" width="152" height="168"></canvas>
+    <div id="mute-indicator">MUTED</div>
+    <div id="volume-box"><input type="range" id="volume-slider" min="0" max="100" value="50"></div>
+    <div id="credit-box" class="label">CREDIT 1</div>
+  </div>
+
+  <canvas id="chomp" width="180" height="120"></canvas>
+  <div id="center-msg"></div>
+  <div id="behind-warn">BEHIND YOU!</div>
+  <div id="touch-ui">
+    <div id="stick-zone"><div id="stick-knob"></div></div>
+    <button id="touch-sprint">RUN</button>
+    <button id="touch-gyro">GYRO</button>
+    <button id="touch-pause">| |</button>
+  </div>
+
+  <div id="start-screen" class="overlay crt">
+    <div class="crt-band"></div>
+    <h1>PAC-MAN 3D</h1>
+    <h2>FIRST PERSON MAZE</h2>
+    <svg id="menu-chase" viewBox="0 0 640 96" aria-hidden="true">
+      <g id="menu-dots" fill="#ffcc88"></g>
+      <path id="menu-pac" fill="#fcfc00" d=""/>
+      <g id="menu-ghosts"></g>
+    </svg>
+    <div class="menu-high" id="menu-high-score">HIGH SCORE 0</div>
+    <div class="instructions pixel-lines" id="desktop-instructions">
+      <div class="pixel-line"><b>W A S D</b> or <b>ARROW KEYS</b> — MOVE | <b>MOUSE</b> — LOOK</div>
+      <div class="pixel-line">EAT EVERY PELLET. POWER PELLETS LET YOU EAT THE GHOSTS.</div>
+      <div class="pixel-line"><span style="color:#fc0000">BLINKY</span> CHASES YOU <span style="color:#fcb4ff">PINKY</span> AMBUSHES <span style="color:#00fcff">INKY</span> FLANKS <span style="color:#fcb455">CLYDE</span> IS SHY</div>
+      <div class="pixel-line"><b>ESC</b> — PAUSE | <b>M</b> — MUTE</div>
+      <div class="pixel-line"><b>SHIFT</b> — SPRINT | <b>[ ]</b> — LOOK SENSITIVITY</div>
+      <div class="pixel-line">GHOSTS WAIL IN STEREO — LISTEN FOR THEM BEHIND YOU</div>
+      <div class="pixel-line">HEARTBEAT MEANS A GHOST IS CLOSING IN</div>
+    </div>
+    <div class="instructions pixel-lines" id="touch-instructions">
+      <div class="pixel-line"><b>LEFT STICK</b> — MOVE | <b>DRAG</b> — LOOK | <b>RUN</b> — SPRINT</div>
+      <div class="pixel-line">EAT EVERY PELLET. POWER PELLETS LET YOU EAT THE GHOSTS.</div>
+      <div class="pixel-line"><span style="color:#fc0000">BLINKY</span> CHASES YOU <span style="color:#fcb4ff">PINKY</span> AMBUSHES <span style="color:#00fcff">INKY</span> FLANKS <span style="color:#fcb455">CLYDE</span> IS SHY</div>
+    </div>
+    <div class="blink">CLICK TO START</div>
+  </div>
+
+  <div id="pause-screen" class="overlay hidden">
+    <h1>PAUSED</h1>
+    <div class="blink">CLICK TO RESUME</div>
+    <button id="restart-btn" class="menu-btn">RESTART GAME</button>
+    <button id="mute-btn" class="menu-btn">SOUND: ON</button>
+  </div>
+
+  <div id="gameover-screen" class="overlay crt hidden">
+    <div class="crt-band"></div>
+    <h1 id="gameover-title"></h1>
+    <div class="final" id="gameover-score"></div>
+    <div class="blink" id="gameover-prompt"></div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="wsg_data.js"></script>
+  <script src="font_data.js"></script>
+  <script src="sprite_data.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
