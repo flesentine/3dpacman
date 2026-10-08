@@ -1071,9 +1071,10 @@ function updatePlayer(dt) {
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
   const tx = (-sin * iz / len + cos * ix / len) * spd;
   const tz = (-cos * iz / len - sin * ix / len) * spd;
-  const accel = player.moving ? 14 : 18;
+  const accel = player.moving ? 16 : 30;
   player.vx += (tx - player.vx) * Math.min(1, accel * dt);
   player.vz += (tz - player.vz) * Math.min(1, accel * dt);
+  if (!player.moving && Math.hypot(player.vx, player.vz) < 0.15) { player.vx = 0; player.vz = 0; }
   if (canStand(player.x + player.vx * dt, player.z)) player.x += player.vx * dt;
   else player.vx = 0;
   if (canStand(player.x, player.z + player.vz * dt)) player.z += player.vz * dt;
@@ -2238,12 +2239,24 @@ setPixelText(document.getElementById('mute-indicator'), 'MUTED', '#f66', 16);
 
 let lastTime = performance.now();
 let mmTick = 0;
+let perfTime = 0, perfFrames = 0, perfScaled = false;
 function loop() {
   requestAnimationFrame(loop);
   const now = performance.now();
   tickFps(now);
-  let dt = Math.min(0.05, (now - lastTime) / 1000);
+  const rawDt = (now - lastTime) / 1000;
+  let dt = Math.min(0.05, rawDt);
   lastTime = now;
+  if (!perfScaled && game.state === 'playing') {
+    perfTime += rawDt; perfFrames++;
+    if (perfTime >= 4) {
+      if (perfFrames / perfTime < 45 && renderer.getPixelRatio() > 1.0) {
+        renderer.setPixelRatio(1.0);
+        perfScaled = true;
+      }
+      perfTime = 0; perfFrames = 0;
+    }
+  }
   if (game.hitstop > 0) {
     game.hitstop -= dt;
     dt = 0;
