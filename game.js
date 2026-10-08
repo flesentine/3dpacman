@@ -896,17 +896,13 @@ document.addEventListener('mousemove', e => {
 const TOUCH_MODE = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 const touchMove = { x: 0, y: 0 };
 let stickId = null, stickCX = 0, stickCY = 0;
-let lookId = null, lookLX = 0, lookLY = 0;
+let lookId = null, lookOX = 0, lookLX = 0, lookLY = 0;
 const STICK_R = 48;
 const LOOK_R = 48;
-const lookStick = { x: 0, y: 0 };
-function moveLookStick(t) {
-  let dx = t.clientX - lookLX, dy = t.clientY - lookLY;
-  const len = Math.hypot(dx, dy);
-  if (len > LOOK_R) { dx = dx / len * LOOK_R; dy = dy / len * LOOK_R; }
-  if (Math.hypot(dx, dy) < LOOK_R * 0.18) { dx = 0; dy = 0; }
+const LOOK_GAIN = 0.009;
+function moveLookKnob(t) {
+  const dx = Math.max(-LOOK_R, Math.min(LOOK_R, t.clientX - lookOX));
   document.getElementById('look-knob').style.transform = 'translate(' + dx + 'px,0px)';
-  lookStick.x = dx / LOOK_R; lookStick.y = 0;
 }
 function showLookBase(x, y) {
   const base = document.getElementById('look-zone');
@@ -917,7 +913,7 @@ function showLookBase(x, y) {
 }
 function hideLookBase() {
   document.getElementById('look-zone').style.display = 'none';
-  lookStick.x = 0; lookStick.y = 0;
+  document.getElementById('look-knob').style.transform = '';
 }
 function moveStick(t) {
   let dx = t.clientX - stickCX, dy = t.clientY - stickCY;
@@ -966,9 +962,8 @@ if (TOUCH_MODE) {
         moveStick(t);
       } else if (!gyroOn) {
         if (lookId === null) {
-          lookId = t.identifier; lookLX = t.clientX; lookLY = t.clientY;
+          lookId = t.identifier; lookOX = lookLX = t.clientX; lookLY = t.clientY;
           showLookBase(t.clientX, t.clientY);
-          moveLookStick(t);
         }
       }
     }
@@ -978,7 +973,11 @@ if (TOUCH_MODE) {
     e.preventDefault();
     for (const t of e.changedTouches) {
       if (t.identifier === stickId) moveStick(t);
-      else if (t.identifier === lookId && !gyroOn) moveLookStick(t);
+      else if (t.identifier === lookId && !gyroOn) {
+        player.yaw -= (t.clientX - lookLX) * LOOK_GAIN * player.sens;
+        lookLX = t.clientX; lookLY = t.clientY;
+        moveLookKnob(t);
+      }
     }
   }, { passive: false });
   const touchEnd = e => {
@@ -1044,10 +1043,6 @@ function updatePlayer(dt) {
   } else {
     player.stamina = Math.min(100, player.stamina + (player.moving ? 14 : 22) * dt);
     if (player.stamina >= 25) player.exhausted = false;
-  }
-  if (lookStick.x !== 0) {
-    const m = Math.sign(lookStick.x) * Math.pow(Math.abs(lookStick.x), 1.5);
-    player.yaw -= m * 4.2 * dt * player.sens;
   }
   const inTunnel = Math.round(worldToGrid(player.x, player.z).y) === TUNNEL_ROW;
   const spd = player.speed * (sprinting ? 1.35 : 1) * (inTunnel ? 1.15 : 1) * TILE;
@@ -2369,6 +2364,14 @@ document.getElementById('mute-btn').addEventListener('click', e => {
   AudioEngine.toggleMute();
   updateMuteIndicator();
   updateMuteBtn();
+});
+document.getElementById('sens-down').addEventListener('click', e => {
+  e.stopPropagation();
+  adjustSens(-0.15);
+});
+document.getElementById('sens-up').addEventListener('click', e => {
+  e.stopPropagation();
+  adjustSens(0.15);
 });
 document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement !== renderer.domElement) pauseGame();
