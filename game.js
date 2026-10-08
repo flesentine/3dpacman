@@ -1042,8 +1042,8 @@ function updatePlayer(dt) {
     if (player.stamina >= 25) player.exhausted = false;
   }
   if (lookStick.x !== 0 || lookStick.y !== 0) {
-    player.yaw -= lookStick.x * 2.4 * dt * player.sens;
-    player.pitch -= lookStick.y * 1.8 * dt * player.sens;
+    player.yaw -= lookStick.x * 3.2 * dt * player.sens;
+    player.pitch -= lookStick.y * 2.4 * dt * player.sens;
     player.pitch = Math.max(-1.2, Math.min(1.2, player.pitch));
   }
   const inTunnel = Math.round(worldToGrid(player.x, player.z).y) === TUNNEL_ROW;
