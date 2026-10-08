@@ -915,10 +915,6 @@ function hideLookBase() {
   document.getElementById('look-zone').style.display = 'none';
   lookStick.x = 0; lookStick.y = 0;
 }
-function stickCenter() {
-  const r = document.getElementById('stick-zone').getBoundingClientRect();
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-}
 function moveStick(t) {
   let dx = t.clientX - stickCX, dy = t.clientY - stickCY;
   const len = Math.hypot(dx, dy);
@@ -944,50 +940,51 @@ function resetStick() {
   stickId = null;
   touchMove.x = 0; touchMove.y = 0;
   document.getElementById('stick-knob').style.transform = '';
+  document.getElementById('stick-zone').style.display = 'none';
+}
+function showStickBase(x, y) {
+  const zone = document.getElementById('stick-zone');
+  zone.style.left = (x - 64) + 'px';
+  zone.style.top = (y - 64) + 'px';
+  zone.style.display = 'block';
+  document.getElementById('stick-knob').style.transform = '';
 }
 if (TOUCH_MODE) {
   document.body.classList.add('touch');
-  const stickZone = document.getElementById('stick-zone');
-  stickZone.addEventListener('touchstart', e => {
-    e.preventDefault();
-    if (stickId !== null) return;
-    const t = e.changedTouches[0];
-    stickId = t.identifier;
-    const c = stickCenter();
-    stickCX = c.x; stickCY = c.y;
-    moveStick(t);
-  }, { passive: false });
-  stickZone.addEventListener('touchmove', e => {
-    e.preventDefault();
-    for (const t of e.changedTouches) if (t.identifier === stickId) moveStick(t);
-  }, { passive: false });
-  const stickEnd = e => { for (const t of e.changedTouches) if (t.identifier === stickId) resetStick(); };
-  stickZone.addEventListener('touchend', stickEnd);
-  stickZone.addEventListener('touchcancel', stickEnd);
   renderer.domElement.addEventListener('touchstart', e => {
-    if (game.state !== 'playing' || gyroOn) return;
+    if (game.state !== 'playing') return;
     for (const t of e.changedTouches) {
-      if (lookId === null) {
-        lookId = t.identifier; lookLX = t.clientX; lookLY = t.clientY;
-        showLookBase(t.clientX, t.clientY);
-        moveLookStick(t);
+      if (t.clientX < window.innerWidth / 2) {
+        if (stickId !== null) continue;
+        stickId = t.identifier;
+        stickCX = t.clientX; stickCY = t.clientY;
+        showStickBase(t.clientX, t.clientY);
+        moveStick(t);
+      } else if (!gyroOn) {
+        if (lookId === null) {
+          lookId = t.identifier; lookLX = t.clientX; lookLY = t.clientY;
+          showLookBase(t.clientX, t.clientY);
+          moveLookStick(t);
+        }
       }
     }
   }, { passive: true });
   renderer.domElement.addEventListener('touchmove', e => {
-    if (game.state !== 'playing' || gyroOn) return;
+    if (game.state !== 'playing') return;
     e.preventDefault();
     for (const t of e.changedTouches) {
-      if (t.identifier === lookId) moveLookStick(t);
+      if (t.identifier === stickId) moveStick(t);
+      else if (t.identifier === lookId && !gyroOn) moveLookStick(t);
     }
   }, { passive: false });
-  const lookEnd = e => {
+  const touchEnd = e => {
     for (const t of e.changedTouches) {
+      if (t.identifier === stickId) resetStick();
       if (t.identifier === lookId) { lookId = null; hideLookBase(); }
     }
   };
-  renderer.domElement.addEventListener('touchend', lookEnd);
-  renderer.domElement.addEventListener('touchcancel', lookEnd);
+  renderer.domElement.addEventListener('touchend', touchEnd);
+  renderer.domElement.addEventListener('touchcancel', touchEnd);
   document.getElementById('touch-pause').addEventListener('click', () => pauseGame());
   const sprintBtn = document.getElementById('touch-sprint');
   sprintBtn.addEventListener('touchstart', e => {
@@ -1026,6 +1023,12 @@ function updatePlayer(dt) {
   if (keys['KeyD'] || keys['ArrowRight']) ix += 1;
   iz += -touchMove.y;
   ix += touchMove.x;
+  if (TOUCH_MODE && (ix !== 0 || iz !== 0)) {
+    if (Math.abs(ix) > Math.abs(iz)) iz = 0;
+    else if (Math.abs(iz) > Math.abs(ix)) ix = 0;
+    else if (Math.abs(player.vx) >= Math.abs(player.vz)) iz = 0;
+    else ix = 0;
+  }
   player.moving = (ix !== 0 || iz !== 0);
 
   const wantSprint = (keys['ShiftLeft'] || keys['ShiftRight'] || touchSprint) && player.moving;
