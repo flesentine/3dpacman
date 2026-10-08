@@ -518,7 +518,8 @@ function makeFloorTexture() {
   return tex;
 }
 const wallTex = makeWallTexture();
-const wallMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: wallTex, emissive: 0x2424ff, emissiveMap: wallTex, emissiveIntensity: 0.55, roughness: 0.4, metalness: 0.1 });
+let wallMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: wallTex, emissive: 0x2424ff, emissiveMap: wallTex, emissiveIntensity: 0.55, roughness: 0.4, metalness: 0.1 });
+if (LOWFX) wallMat = new THREE.MeshBasicMaterial({ map: wallTex });
 const wallGeo = new THREE.BoxGeometry(TILE, WALL_H * TILE, TILE);
 
 let wallCount = 0;
@@ -536,7 +537,9 @@ const wallMesh = new THREE.InstancedMesh(wallGeo, wallMat, wallCount);
 }
 scene.add(wallMesh);
 
-const floorMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: makeFloorTexture(), roughness: 0.9 });
+const floorTex = makeFloorTexture();
+let floorMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: floorTex, roughness: 0.9 });
+if (LOWFX) floorMat = new THREE.MeshBasicMaterial({ map: floorTex });
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(COLS * TILE + 8, ROWS * TILE + 8), floorMat);
 floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
@@ -561,7 +564,8 @@ function makeCeilingTexture() {
   return tex;
 }
 const ceilTex = makeCeilingTexture();
-const ceilMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: ceilTex, emissive: 0x2233aa, emissiveMap: ceilTex, emissiveIntensity: 0.35, roughness: 1 });
+let ceilMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: ceilTex, emissive: 0x2233aa, emissiveMap: ceilTex, emissiveIntensity: 0.35, roughness: 1 });
+if (LOWFX) ceilMat = new THREE.MeshBasicMaterial({ map: ceilTex });
 const ceil = new THREE.Mesh(new THREE.PlaneGeometry(COLS * TILE + 8, ROWS * TILE + 8), ceilMat);
 ceil.rotation.x = Math.PI / 2;
 ceil.position.y = WALL_H * TILE;
@@ -1791,7 +1795,7 @@ const LEVEL_THEMES = [
 function applyLevelTheme() {
   const t = LEVEL_THEMES[(game.level - 1) % LEVEL_THEMES.length];
   wallMat.color.set(t.color);
-  wallMat.emissive.set(t.emissive);
+  if (wallMat.emissive) wallMat.emissive.set(t.emissive);
 }
 function updateHUD() {
   if (game.score > game.high) {
@@ -2311,7 +2315,9 @@ function loop() {
     game.levelTimer -= dt;
     if (!REDUCED_MOTION) camera.rotation.y += dt * 1.2;
     const theme = LEVEL_THEMES[(game.level - 1) % LEVEL_THEMES.length];
-    wallMat.emissive.set(Math.floor(game.levelTimer * 6) % 2 === 0 ? 0xffffff : theme.emissive);
+    if (wallMat.emissive) wallMat.emissive.set(Math.floor(game.levelTimer * 6) % 2 === 0 ? 0xffffff : theme.emissive);
+    else if (Math.floor(game.levelTimer * 6) % 2 === 0) wallMat.color.set(0xffffff);
+    else wallMat.color.set(theme.color);
     if (game.levelTimer <= 0) nextLevel();
   } else if (game.state === 'menu' || game.state === 'gameOver') {
     const t = now * 0.0002;
@@ -2328,7 +2334,7 @@ function loop() {
     const ff = document.getElementById('fright-flash');
     if (ff) ff.style.opacity = (game.frightPunch || 0) * 0.6;
   }
-  if ((mmTick++ & 1) === 0) drawMinimap();
+  if ((mmTick++ & (LOWFX ? 3 : 1)) === 0) drawMinimap();
   if (game.state === 'playing' || game.state === 'dying') WSG.tick(dt);
   if (player.moving || player.chomp > 0.05) drawChomp();
   updatePacmanDeath(dt);
