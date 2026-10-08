@@ -901,8 +901,8 @@ function moveLookStick(t) {
   const len = Math.hypot(dx, dy);
   if (len > LOOK_R) { dx = dx / len * LOOK_R; dy = dy / len * LOOK_R; }
   if (Math.hypot(dx, dy) < LOOK_R * 0.18) { dx = 0; dy = 0; }
-  document.getElementById('look-knob').style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
-  lookStick.x = dx / LOOK_R; lookStick.y = dy / LOOK_R;
+  document.getElementById('look-knob').style.transform = 'translate(' + dx + 'px,0px)';
+  lookStick.x = dx / LOOK_R; lookStick.y = 0;
 }
 function showLookBase(x, y) {
   const base = document.getElementById('look-zone');
@@ -1041,10 +1041,9 @@ function updatePlayer(dt) {
     player.stamina = Math.min(100, player.stamina + (player.moving ? 14 : 22) * dt);
     if (player.stamina >= 25) player.exhausted = false;
   }
-  if (lookStick.x !== 0 || lookStick.y !== 0) {
-    player.yaw -= lookStick.x * 3.2 * dt * player.sens;
-    player.pitch -= lookStick.y * 2.4 * dt * player.sens;
-    player.pitch = Math.max(-1.2, Math.min(1.2, player.pitch));
+  if (lookStick.x !== 0) {
+    const m = Math.sign(lookStick.x) * Math.pow(Math.abs(lookStick.x), 1.5);
+    player.yaw -= m * 4.2 * dt * player.sens;
   }
   const inTunnel = Math.round(worldToGrid(player.x, player.z).y) === TUNNEL_ROW;
   const spd = player.speed * (sprinting ? 1.35 : 1) * (inTunnel ? 1.15 : 1) * TILE;
