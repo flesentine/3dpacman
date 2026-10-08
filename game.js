@@ -861,6 +861,7 @@ function updateStaminaBar() {
   bar.style.background = pct < 30 ? '#f66' : '#fcfc00';
 }
 function resetPlayer() {
+  resetMobileInput();
   const w = gridToWorld(PLAYER_START.x, PLAYER_START.y);
   player.x = w.x; player.z = w.z;
   player.yaw = Math.PI / 2; player.pitch = 0;
@@ -900,6 +901,19 @@ let lookId = null, lookOX = 0, lookLX = 0, lookLY = 0;
 const STICK_R = 48;
 const LOOK_R = 48;
 const LOOK_GAIN = 0.009;
+const mobileControls = { mode: 'stick', moveSpeed: 0.85, turnSpeed: 2.8, swipeGain: LOOK_GAIN };
+try {
+  const saved = JSON.parse(localStorage.getItem('pacman3d_controls') || '{}');
+  if (saved.mode === 'stick' || saved.mode === 'swipe') mobileControls.mode = saved.mode;
+  if (Number.isFinite(saved.moveSpeed)) mobileControls.moveSpeed = Math.max(0.5, Math.min(1, saved.moveSpeed));
+  if (Number.isFinite(saved.turnSpeed)) mobileControls.turnSpeed = Math.max(1, Math.min(5, saved.turnSpeed));
+  if (Number.isFinite(saved.swipeGain)) mobileControls.swipeGain = Math.max(0.003, Math.min(0.018, saved.swipeGain));
+} catch (e) { /* defaults */ }
+const lookInput = { x: 0 };
+function stickAxis(value, deadzone = 0.14) {
+  const magnitude = Math.min(1, Math.abs(value));
+  return magnitude <= deadzone ? 0 : Math.sign(value) * (magnitude - deadzone) / (1 - deadzone);
+}
 function moveLookKnob(t) {
   const dx = Math.max(-LOOK_R, Math.min(LOOK_R, t.clientX - lookOX));
   document.getElementById('look-knob').style.transform = 'translate(' + dx + 'px,0px)';
@@ -912,6 +926,7 @@ function showLookBase(x, y) {
   document.getElementById('look-knob').style.transform = '';
 }
 function hideLookBase() {
+  lookInput.x = 0;
   document.getElementById('look-zone').style.display = 'none';
   document.getElementById('look-knob').style.transform = '';
 }
@@ -919,13 +934,17 @@ function moveStick(t) {
   let dx = t.clientX - stickCX, dy = t.clientY - stickCY;
   const len = Math.hypot(dx, dy);
   if (len > STICK_R) { dx = dx / len * STICK_R; dy = dy / len * STICK_R; }
-  if (Math.hypot(dx, dy) < STICK_R * 0.18) { dx = 0; dy = 0; }
   document.getElementById('stick-knob').style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
-  touchMove.x = dx / STICK_R; touchMove.y = dy / STICK_R;
+  const magnitude = Math.hypot(dx, dy) / STICK_R;
+  const strength = stickAxis(magnitude);
+  touchMove.x = magnitude ? dx / (magnitude * STICK_R) * strength : 0;
+  touchMove.y = magnitude ? dy / (magnitude * STICK_R) * strength : 0;
 }
 let touchSprint = false;
 let gyroOn = false, gyroBaseYaw = 0, gyroBaseGamma = 0, gyroGamma = 0;
 function setGyro(on) {
+  lookId = null;
+  hideLookBase();
   gyroOn = on;
   const b = document.getElementById('touch-gyro');
   if (b) b.classList.toggle('active', on);
@@ -946,48 +965,59 @@ function showStickBase(x, y) {
   const zone = document.getElementById('stick-zone');
   zone.style.left = (x - 64) + 'px';
   zone.style.top = (y - 64) + 'px';
+  zone.style.bottom = 'auto';
   zone.style.display = 'block';
   document.getElementById('stick-knob').style.transform = '';
 }
+function resetMobileInput() {
+  resetStick();
+  lookId = null;
+  hideLookBase();
+  setGyro(false);
+  touchSprint = false;
+  document.getElementById('touch-sprint').classList.remove('active');
+  if (TOUCH_MODE) { player.vx = 0; player.vz = 0; }
+}
+window.addEventListener('orientationchange', resetMobileInput);
+window.addEventListener('resize', resetMobileInput);
 if (TOUCH_MODE) {
   document.body.classList.add('touch');
-  renderer.domElement.addEventListener('touchstart', e => {
-    if (game.state !== 'playing') return;
-    for (const t of e.changedTouches) {
-      if (t.clientX < window.innerWidth / 2) {
-        if (stickId !== null) continue;
-        stickId = t.identifier;
-        stickCX = t.clientX; stickCY = t.clientY;
-        showStickBase(t.clientX, t.clientY);
-        moveStick(t);
-      } else if (!gyroOn) {
-        if (lookId === null) {
-          lookId = t.identifier; lookOX = lookLX = t.clientX; lookLY = t.clientY;
-          showLookBase(t.clientX, t.clientY);
-        }
-      }
-    }
-  }, { passive: true });
-  renderer.domElement.addEventListener('touchmove', e => {
+  renderer.domElement.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
     if (game.state !== 'playing') return;
     e.preventDefault();
-    for (const t of e.changedTouches) {
-      if (t.identifier === stickId) moveStick(t);
-      else if (t.identifier === lookId && !gyroOn) {
-        player.yaw -= (t.clientX - lookLX) * LOOK_GAIN * player.sens;
-        lookLX = t.clientX; lookLY = t.clientY;
-        moveLookKnob(t);
-      }
+    const t = e;
+    if (t.clientX < window.innerWidth / 2) {
+      if (stickId !== null) return;
+      stickId = t.pointerId;
+      stickCX = t.clientX; stickCY = t.clientY;
+      showStickBase(t.clientX, t.clientY);
+      moveStick(t);
+    } else if (!gyroOn && lookId === null) {
+      lookId = t.pointerId; lookOX = lookLX = t.clientX; lookLY = t.clientY;
+      if (mobileControls.mode === 'stick') showLookBase(t.clientX, t.clientY);
+    } else return;
+    renderer.domElement.setPointerCapture(e.pointerId);
+  });
+  renderer.domElement.addEventListener('pointermove', e => {
+    if (game.state !== 'playing') return;
+    e.preventDefault();
+    const t = e;
+    if (t.pointerId === stickId) moveStick(t);
+    else if (t.pointerId === lookId && !gyroOn) {
+      if (mobileControls.mode === 'stick') lookInput.x = stickAxis((t.clientX - lookOX) / LOOK_R, 0.10);
+      else player.yaw -= (t.clientX - lookLX) * mobileControls.swipeGain;
+      lookLX = t.clientX; lookLY = t.clientY;
+      if (mobileControls.mode === 'stick') moveLookKnob(t);
     }
-  }, { passive: false });
+  });
   const touchEnd = e => {
-    for (const t of e.changedTouches) {
-      if (t.identifier === stickId) resetStick();
-      if (t.identifier === lookId) { lookId = null; hideLookBase(); }
-    }
+    if (e.pointerId === stickId) resetStick();
+    if (e.pointerId === lookId) { lookId = null; hideLookBase(); }
   };
-  renderer.domElement.addEventListener('touchend', touchEnd);
-  renderer.domElement.addEventListener('touchcancel', touchEnd);
+  renderer.domElement.addEventListener('pointerup', touchEnd);
+  renderer.domElement.addEventListener('pointercancel', touchEnd);
+  renderer.domElement.addEventListener('lostpointercapture', touchEnd);
   document.getElementById('touch-pause').addEventListener('click', () => pauseGame());
   const sprintBtn = document.getElementById('touch-sprint');
   sprintBtn.addEventListener('touchstart', e => {
@@ -1026,11 +1056,9 @@ function updatePlayer(dt) {
   if (keys['KeyD'] || keys['ArrowRight']) ix += 1;
   iz += -touchMove.y;
   ix += touchMove.x;
-  if (TOUCH_MODE && (ix !== 0 || iz !== 0)) {
-    if (Math.abs(ix) > Math.abs(iz)) iz = 0;
-    else if (Math.abs(iz) > Math.abs(ix)) ix = 0;
-    else if (Math.abs(player.vx) >= Math.abs(player.vz)) iz = 0;
-    else ix = 0;
+  if (TOUCH_MODE && !gyroOn) {
+    player.yaw -= lookInput.x * mobileControls.turnSpeed * dt;
+    player.pitch = 0;
   }
   player.moving = (ix !== 0 || iz !== 0);
 
@@ -1066,22 +1094,26 @@ function updatePlayer(dt) {
   } else {
     game.sprintTimer = 0;
   }
-  const len = (ix !== 0 || iz !== 0) ? Math.hypot(ix, iz) : 1;
+  const len = Math.max(1, Math.hypot(ix, iz));
+  const mobileScale = stickId !== null ? mobileControls.moveSpeed : 1;
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
-  const tx = (-sin * iz / len + cos * ix / len) * spd;
-  const tz = (-cos * iz / len - sin * ix / len) * spd;
+  const tx = (-sin * iz / len + cos * ix / len) * spd * mobileScale;
+  const tz = (-cos * iz / len - sin * ix / len) * spd * mobileScale;
   const accel = player.moving ? 16 : 30;
-  player.vx += (tx - player.vx) * Math.min(1, accel * dt);
-  player.vz += (tz - player.vz) * Math.min(1, accel * dt);
+  if (TOUCH_MODE) { player.vx = tx; player.vz = tz; }
+  else {
+    player.vx += (tx - player.vx) * Math.min(1, accel * dt);
+    player.vz += (tz - player.vz) * Math.min(1, accel * dt);
+  }
   if (!player.moving && Math.hypot(player.vx, player.vz) < 0.15) { player.vx = 0; player.vz = 0; }
   if (canStand(player.x + player.vx * dt, player.z)) player.x += player.vx * dt;
   else player.vx = 0;
   if (canStand(player.x, player.z + player.vz * dt)) player.z += player.vz * dt;
   else player.vz = 0;
-  if (player.moving && Math.abs(ix) < 0.35) {
+  if (player.moving && Math.abs(ix) < (TOUCH_MODE ? 0.15 : 0.35)) {
     const lane = worldToGrid(player.x, player.z);
     const center = gridToWorld(lane.x, lane.y);
-    const k = Math.min(1, 5 * dt);
+    const k = 1 - Math.exp(-5 * dt);
     if (Math.abs(player.vx) > Math.abs(player.vz) * 1.5 &&
         isWallTile(lane.x, lane.y - 1) && isWallTile(lane.x, lane.y + 1)) {
       const nz = player.z + (center.z - player.z) * k;
@@ -1536,6 +1568,7 @@ document.addEventListener('visibilitychange', () => {
 });
 function pauseGame() {
   if (game.state === 'playing' || game.state === 'dying' || game.state === 'levelComplete') {
+    resetMobileInput();
     game.resumeState = game.state;
     game.state = 'paused';
     releaseWake();
@@ -1893,6 +1926,7 @@ const KILLER_TIPS = {
   clyde: 'HES UNPREDICTABLE',
 };
 function playerDied() {
+  resetMobileInput();
   game.state = 'dying';
   game.deathTimer = 2.5;
   game.lives--;
@@ -2373,10 +2407,32 @@ document.getElementById('sens-up').addEventListener('click', e => {
   e.stopPropagation();
   adjustSens(0.15);
 });
+const mobileSettings = document.getElementById('mobile-settings');
+mobileSettings.addEventListener('click', e => e.stopPropagation());
+function syncMobileSettings() {
+  document.getElementById('look-mode').value = mobileControls.mode;
+  document.getElementById('move-speed').value = Math.round(mobileControls.moveSpeed * 100);
+  document.getElementById('turn-speed').value = Math.round(mobileControls.turnSpeed * 10);
+  document.getElementById('swipe-gain').value = Math.round(mobileControls.swipeGain * 1000);
+  document.getElementById('move-value').textContent = Math.round(mobileControls.moveSpeed * 100) + '%';
+  document.getElementById('turn-value').textContent = mobileControls.turnSpeed.toFixed(1);
+  document.getElementById('swipe-value').textContent = mobileControls.swipeGain.toFixed(3);
+}
+mobileSettings.addEventListener('input', () => {
+  resetMobileInput();
+  mobileControls.mode = document.getElementById('look-mode').value;
+  mobileControls.moveSpeed = Number(document.getElementById('move-speed').value) / 100;
+  mobileControls.turnSpeed = Number(document.getElementById('turn-speed').value) / 10;
+  mobileControls.swipeGain = Number(document.getElementById('swipe-gain').value) / 1000;
+  try { localStorage.setItem('pacman3d_controls', JSON.stringify(mobileControls)); } catch (e) { /* ignore */ }
+  syncMobileSettings();
+});
+syncMobileSettings();
 document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement !== renderer.domElement) pauseGame();
 });
 window.addEventListener('blur', () => {
+  resetMobileInput();
   WSG.suspend();
   for (const k in keys) keys[k] = false;
   touchMove.x = 0; touchMove.y = 0;
