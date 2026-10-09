@@ -2376,28 +2376,9 @@ setPixelText(document.getElementById('mute-indicator'), 'MUTED', '#f66', 16);
 let lastTime = performance.now();
 let mmTick = 0;
 let perfTime = 0, perfFrames = 0, perfScaled = false;
-function loop() {
-  requestAnimationFrame(loop);
-  const now = performance.now();
-  tickFps(now);
-  const rawDt = (now - lastTime) / 1000;
-  let dt = Math.min(0.05, rawDt);
-  lastTime = now;
-  if (!perfScaled && game.state === 'playing') {
-    perfTime += rawDt; perfFrames++;
-    if (perfTime >= 4) {
-      if (perfFrames / perfTime < 45 && renderer.getPixelRatio() > 1.0) {
-        renderer.setPixelRatio(1.0);
-        perfScaled = true;
-      }
-      perfTime = 0; perfFrames = 0;
-    }
-  }
-  if (game.hitstop > 0) {
-    game.hitstop -= dt;
-    dt = 0;
-  }
-
+let simAcc = 0;
+const SIM_DT = 1 / 60;
+function stepGame(dt) {
   if (game.state === 'playing') {
     if (game.readyTimer > 0) {
       game.readyTimer -= dt;
@@ -2423,7 +2404,6 @@ function loop() {
       updateFruitMagnetism(dt);
       updateRadar();
     }
-    pulsePowerPellets(now);
     if (game.score >= game.nextExtra) {
       game.lives++;
       game.nextExtra += 10000;
@@ -2451,14 +2431,44 @@ function loop() {
     else if (Math.floor(game.levelTimer * 6) % 2 === 0) wallMat.color.set(0xffffff);
     else wallMat.color.set(theme.color);
     if (game.levelTimer <= 0) nextLevel();
-  } else if (game.state === 'menu' || game.state === 'gameOver') {
+  }
+}
+function loop() {
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  tickFps(now);
+  const rawDt = (now - lastTime) / 1000;
+  let frameDt = Math.min(0.1, rawDt);
+  lastTime = now;
+  if (!perfScaled && game.state === 'playing') {
+    perfTime += rawDt; perfFrames++;
+    if (perfTime >= 4) {
+      if (perfFrames / perfTime < 45 && renderer.getPixelRatio() > 1.0) {
+        renderer.setPixelRatio(1.0);
+        perfScaled = true;
+      }
+      perfTime = 0; perfFrames = 0;
+    }
+  }
+  if (game.hitstop > 0) {
+    game.hitstop -= frameDt;
+    frameDt = 0;
+  }
+  if (frameDt > 0) {
+    simAcc += frameDt;
+    let steps = 0;
+    while (simAcc >= SIM_DT && steps < 5) { stepGame(SIM_DT); simAcc -= SIM_DT; steps++; }
+    if (steps === 5) simAcc = 0;
+  }
+  if (game.state === 'playing') pulsePowerPellets(now);
+  else if (game.state === 'menu' || game.state === 'gameOver') {
     const t = now * 0.0002;
     camera.position.set(Math.sin(t) * 6, 4, Math.cos(t) * 6);
     camera.lookAt(0, 0, 0);
   }
 
   if (game.state === 'playing' || game.state === 'dying' || game.state === 'levelComplete') {
-    updateDoor(dt);
+    updateDoor(frameDt);
     updatePowerTint();
     updateDanger();
     updateDangerSides();
@@ -2468,12 +2478,12 @@ function loop() {
   }
   if ((mmTick++ & (LOWFX ? 3 : 1)) === 0) drawMinimap();
   if ((proxTick++ & 1) === 0) drawProxMap();
-  if (game.state === 'playing' || game.state === 'dying') WSG.tick(dt);
+  if (game.state === 'playing' || game.state === 'dying') WSG.tick(frameDt);
   if (player.moving || player.chomp > 0.05) drawChomp();
-  updatePacmanDeath(dt);
-  updateBursts(dt);
+  updatePacmanDeath(frameDt);
+  updateBursts(frameDt);
   updateGhostLights();
-  updateMoodLighting(dt, now);
+  updateMoodLighting(frameDt, now);
   renderer.render(scene, camera);
 }
 loop();
