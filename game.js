@@ -2196,6 +2196,91 @@ function drawMinimap() {
   mmCtx.stroke();
 }
 
+/* ---------------- Proximity radar (local zoom, danger only) ---------------- */
+const proxmap = document.getElementById('proxmap');
+const pxCtx = proxmap.getContext('2d');
+const PROX_RANGE = 7;
+const PROX_R = 7;
+let proxTick = 0;
+function ghostColor(g) {
+  return '#' + g.def.color.toString(16).padStart(6, '0');
+}
+function drawProxMap() {
+  if (game.state !== 'playing') { proxmap.style.opacity = 0; return; }
+  const pg = worldToGrid(player.x, player.z);
+  let best = null, bestD = Infinity;
+  const hunters = [];
+  for (const g of ghosts) {
+    if (g.state !== 'normal') continue;
+    let dx = g.gx - pg.x;
+    if (dx > COLS / 2) dx -= COLS; else if (dx < -COLS / 2) dx += COLS;
+    const dy = g.gy - pg.y;
+    const d = Math.hypot(dx, dy);
+    hunters.push({ g, dx, dy, d });
+    if (d < bestD) { bestD = d; best = g; }
+  }
+  if (!best || bestD > PROX_RANGE) { proxmap.style.opacity = 0; return; }
+  proxmap.style.opacity = Math.min(0.92, 0.35 + 0.57 * (1 - bestD / PROX_RANGE));
+  const S = proxmap.width, sc = S / (2 * PROX_R);
+  const tox = tx => (tx - (pg.x - PROX_R)) * sc;
+  const toy = ty => (ty - (pg.y - PROX_R)) * sc;
+  pxCtx.clearRect(0, 0, S, S);
+  pxCtx.fillStyle = 'rgba(0,0,12,0.55)';
+  pxCtx.fillRect(0, 0, S, S);
+  const x0 = Math.floor(pg.x - PROX_R), x1 = Math.ceil(pg.x + PROX_R);
+  const y0 = Math.max(0, Math.floor(pg.y - PROX_R)), y1 = Math.min(ROWS - 1, Math.ceil(pg.y + PROX_R));
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      let t;
+      if (tx < 0 || tx >= COLS) {
+        if (ty !== TUNNEL_ROW) continue;
+        t = '.';
+      } else t = tileAt(tx, ty);
+      if (t === '#') {
+        pxCtx.fillStyle = '#2a4bff';
+        pxCtx.fillRect(tox(tx), toy(ty), sc + 0.5, sc + 0.5);
+      }
+    }
+  }
+  for (const p of pellets) {
+    if (p.eaten) continue;
+    let dx = p.gx - pg.x;
+    if (dx > COLS / 2) dx -= COLS; else if (dx < -COLS / 2) dx += COLS;
+    const dy = p.gy - pg.y;
+    if (Math.hypot(dx, dy) > PROX_R) continue;
+    pxCtx.fillStyle = p.power ? '#ffee88' : 'rgba(216,144,85,0.6)';
+    pxCtx.beginPath();
+    pxCtx.arc(tox(p.gx), toy(p.gy), p.power ? 3 : 1.5, 0, Math.PI * 2);
+    pxCtx.fill();
+  }
+  for (const h of hunters) {
+    if (Math.hypot(h.dx, h.dy) > PROX_R + 0.5) continue;
+    const isBest = h.g === best;
+    pxCtx.fillStyle = ghostColor(h.g);
+    pxCtx.beginPath();
+    pxCtx.arc(tox(pg.x + h.dx), toy(pg.y + h.dy), isBest ? 5 : 3.5, 0, Math.PI * 2);
+    pxCtx.fill();
+    if (isBest) {
+      pxCtx.strokeStyle = '#ffffff';
+      pxCtx.lineWidth = 1.5;
+      pxCtx.beginPath();
+      pxCtx.arc(tox(pg.x + h.dx), toy(pg.y + h.dy), 6.5, 0, Math.PI * 2);
+      pxCtx.stroke();
+    }
+  }
+  const cx = tox(pg.x), cy = toy(pg.y);
+  pxCtx.fillStyle = '#fcfc00';
+  pxCtx.beginPath();
+  pxCtx.arc(cx, cy, 4.5, 0, Math.PI * 2);
+  pxCtx.fill();
+  pxCtx.strokeStyle = '#fcfc00';
+  pxCtx.lineWidth = 2;
+  pxCtx.beginPath();
+  pxCtx.moveTo(cx, cy);
+  pxCtx.lineTo(cx - Math.sin(player.yaw) * 9, cy - Math.cos(player.yaw) * 9);
+  pxCtx.stroke();
+}
+
 /* ---------------- Chomp overlay ---------------- */
 const chompCanvas = document.getElementById('chomp');
 const chompCtx = chompCanvas.getContext('2d');
@@ -2364,6 +2449,7 @@ function loop() {
     if (ff) ff.style.opacity = (game.frightPunch || 0) * 0.6;
   }
   if ((mmTick++ & (LOWFX ? 3 : 1)) === 0) drawMinimap();
+  if ((proxTick++ & 1) === 0) drawProxMap();
   if (game.state === 'playing' || game.state === 'dying') WSG.tick(dt);
   if (player.moving || player.chomp > 0.05) drawChomp();
   updatePacmanDeath(dt);

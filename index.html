@@ -56,6 +56,9 @@
   #lives-icons canvas { image-rendering: pixelated; image-rendering: crisp-edges; height: 22px; }
   #minimap { position: absolute; top: 18px; right: 24px; width: 128px; height: 141px;
     border: 2px solid #224; border-radius: 4px; background: rgba(0,0,10,0.68); opacity: .72; }
+  #proxmap { position: fixed; bottom: 150px; left: 50%; transform: translateX(-50%); z-index: 9;
+    pointer-events: none; opacity: 0; transition: opacity .25s;
+    border: 2px solid rgba(80,120,255,.55); border-radius: 10px; background: rgba(0,0,10,.55); }
   #volume-box { position: absolute; bottom: 52px; right: 24px; pointer-events: auto; }
   #credit-box { position: absolute; bottom: 78px; right: 24px; }
   #volume-slider { width: 110px; accent-color: #fcfc00; }
@@ -86,6 +89,7 @@
   #mute-indicator { right: calc(24px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); }
   #credit-box { right: calc(24px + env(safe-area-inset-right)); }
   @media (max-width: 500px) {
+    #proxmap { width: 128px; height: 128px; bottom: 140px; }
     #volume-slider { width: 80px; }
     #volume-box { bottom: auto; top: 128px; left: 24px; right: auto; }
     #credit-box { bottom: auto; top: 134px; }
@@ -245,6 +249,7 @@
   </div>
 
   <canvas id="chomp" width="180" height="120"></canvas>
+  <canvas id="proxmap" width="168" height="168"></canvas>
   <div id="center-msg"></div>
   <div id="behind-warn">BEHIND YOU!</div>
   <div id="touch-ui">
