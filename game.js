@@ -396,6 +396,8 @@ function buzz(pattern) {
 const QS = new URLSearchParams(location.search);
 const LOWFX = QS.get('fx') === 'low' || ((('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) && Math.min(window.innerWidth, window.innerHeight) < 500);
 const SHOWFPS = QS.get('fps') === '1';
+const SHOWDBG = QS.get('debug') === '1';
+let dbgTouches = 0, dbgYaw = 0, dbgYawT = 0;
 const REDUCED_MOTION = (typeof window.matchMedia === 'function') && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const container = document.getElementById('game-container');
 const renderer = new THREE.WebGLRenderer({ antialias: !LOWFX });
@@ -404,12 +406,22 @@ const fpsMeter = document.createElement('div');
 fpsMeter.id = 'fps-meter';
 fpsMeter.style.cssText = 'position:fixed;top:4px;left:4px;z-index:99;font:12px monospace;color:#0f0;display:none;pointer-events:none;';
 document.body.appendChild(fpsMeter);
-if (SHOWFPS) fpsMeter.style.display = 'block';
+if (SHOWFPS || SHOWDBG) fpsMeter.style.display = 'block';
 let fpsN = 0, fpsT = performance.now();
 function tickFps(now) {
   fpsN++;
   if (now - fpsT >= 500) {
-    fpsMeter.textContent = Math.round(fpsN * 1000 / (now - fpsT)) + 'fps' + (LOWFX ? ' lowfx' : '');
+    const fps = Math.round(fpsN * 1000 / (now - fpsT));
+    fpsMeter.textContent = fps + 'fps' + (LOWFX ? ' lowfx' : '');
+    if (SHOWDBG) {
+      const secs = (now - fpsT) / 1000;
+      const yawRate = dbgYawT ? Math.abs(player.yaw - dbgYaw) / ((now - dbgYawT) / 1000) * 57.3 : 0;
+      fpsMeter.textContent += ' | ' + ((now - fpsT) / Math.max(1, fpsN)).toFixed(1) + 'ms'
+        + ' | pr:' + renderer.getPixelRatio() + (typeof perfScaled !== 'undefined' && perfScaled ? '*' : '')
+        + ' | tch:' + Math.round(dbgTouches / secs) + '/s'
+        + ' | turn:' + yawRate.toFixed(0) + 'd/s';
+      dbgTouches = 0; dbgYaw = player.yaw; dbgYawT = now;
+    }
     fpsN = 0; fpsT = now;
   }
 }
@@ -1001,6 +1013,7 @@ if (TOUCH_MODE) {
   });
   renderer.domElement.addEventListener('pointermove', e => {
     if (game.state !== 'playing') return;
+    dbgTouches += (e.getCoalescedEvents ? e.getCoalescedEvents().length : 1);
     e.preventDefault();
     const t = e;
     if (t.pointerId === stickId) moveStick(t);
