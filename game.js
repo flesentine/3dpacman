@@ -2199,8 +2199,8 @@ function drawMinimap() {
 /* ---------------- Proximity radar (local zoom, danger only) ---------------- */
 const proxmap = document.getElementById('proxmap');
 const pxCtx = proxmap.getContext('2d');
-const PROX_RANGE = 7;
-const PROX_R = 7;
+const PROX_RANGE = 8;
+const PROX_R = 8;
 let proxTick = 0;
 function ghostColor(g) {
   return '#' + g.def.color.toString(16).padStart(6, '0');
@@ -2227,6 +2227,10 @@ function drawProxMap() {
   pxCtx.clearRect(0, 0, S, S);
   pxCtx.fillStyle = 'rgba(0,0,12,0.55)';
   pxCtx.fillRect(0, 0, S, S);
+  pxCtx.save();
+  pxCtx.translate(S / 2, S / 2);
+  pxCtx.rotate(player.yaw);
+  pxCtx.translate(-S / 2, -S / 2);
   const x0 = Math.floor(pg.x - PROX_R), x1 = Math.ceil(pg.x + PROX_R);
   const y0 = Math.max(0, Math.floor(pg.y - PROX_R)), y1 = Math.min(ROWS - 1, Math.ceil(pg.y + PROX_R));
   for (let ty = y0; ty <= y1; ty++) {
@@ -2277,8 +2281,9 @@ function drawProxMap() {
   pxCtx.lineWidth = 2;
   pxCtx.beginPath();
   pxCtx.moveTo(cx, cy);
-  pxCtx.lineTo(cx - Math.sin(player.yaw) * 9, cy - Math.cos(player.yaw) * 9);
+  pxCtx.lineTo(cx, cy - 9);
   pxCtx.stroke();
+  pxCtx.restore();
 }
 
 /* ---------------- Chomp overlay ---------------- */
