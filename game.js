@@ -652,6 +652,8 @@ const powerGeo = new THREE.SphereGeometry(0.26 * TILE, 20, 14);
 const powerMat = new THREE.MeshStandardMaterial({ color: 0xfff0cc, emissive: 0xffdd66, emissiveIntensity: 2.0 });
 
 let pellets = [];
+let pelletByTile = new Map();
+let powerPellets = [];
 let pelletMesh = null;
 let powerMesh = null;
 const _pm = new THREE.Matrix4();
@@ -669,12 +671,17 @@ function buildPellets() {
   if (pelletMesh) { scene.remove(pelletMesh); pelletMesh = null; }
   if (powerMesh) { scene.remove(powerMesh); powerMesh = null; }
   pellets = [];
+  pelletByTile = new Map();
+  powerPellets = [];
   let nDot = 0, nPow = 0;
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
     const c = MAZE[y][x];
     if (c !== '.' && c !== 'o') continue;
     const power = c === 'o';
-    pellets.push({ mesh: null, idx: power ? nPow++ : nDot++, gx: x, gy: y, power, eaten: false });
+    const pellet = { mesh: null, idx: power ? nPow++ : nDot++, gx: x, gy: y, power, eaten: false };
+    pellets.push(pellet);
+    pelletByTile.set(x + ',' + y, pellet);
+    if (power) powerPellets.push(pellet);
   }
   pelletMesh = new THREE.InstancedMesh(pelletGeo, pelletMat, nDot);
   powerMesh = new THREE.InstancedMesh(powerGeo, powerMat, nPow);
@@ -700,16 +707,15 @@ function hidePellet(p) {
 }
 function pulsePowerPellets(now) {
   let dirty = false;
-  for (const p of pellets) {
-    if (p.power && !p.eaten) {
-      const s = 1 + Math.sin(now * 0.006 + p.gx) * 0.25;
-      const w = gridToWorld(p.gx, p.gy);
-      _pp.set(w.x, TILE * 0.45 + Math.sin(now * 0.006 + p.gx * 2) * 0.06 * TILE, w.z);
-      _ps.set(s, s, s);
-      _pq.identity();
-      p.mesh.setMatrixAt(p.idx, _pm.compose(_pp, _pq, _ps));
-      dirty = true;
-    }
+  for (const p of powerPellets) {
+    if (p.eaten) continue;
+    const s = 1 + Math.sin(now * 0.006 + p.gx) * 0.25;
+    const w = gridToWorld(p.gx, p.gy);
+    _pp.set(w.x, TILE * 0.45 + Math.sin(now * 0.006 + p.gx * 2) * 0.06 * TILE, w.z);
+    _ps.set(s, s, s);
+    _pq.identity();
+    p.mesh.setMatrixAt(p.idx, _pm.compose(_pp, _pq, _ps));
+    dirty = true;
   }
   if (dirty && powerMesh) powerMesh.instanceMatrix.needsUpdate = true;
 }
@@ -1173,8 +1179,8 @@ function updatePlayer(dt) {
   playerLight.intensity = (game.frightTimer > 0 ? 1.6 : 1.3) * flick;
 
   const g = worldToGrid(player.x, player.z);
-  for (const p of pellets) {
-    if (p.eaten || p.gx !== g.x || p.gy !== g.y) continue;
+  const p = pelletByTile.get(g.x + ',' + g.y);
+  if (p && !p.eaten) {
     p.eaten = true; hidePellet(p); pelletCount--;
     runStats.pellets++;
     if (p.power) {
@@ -1777,46 +1783,72 @@ function hideCoach() {
   clearTimeout(showCoach._t);
 }
 
+const radarArrowEl = document.getElementById('radar-arrow');
+const frightFlashEl = document.getElementById('fright-flash');
+const dangerLeftEl = document.getElementById('danger-left');
+const dangerRightEl = document.getElementById('danger-right');
+const behindWarnEl = document.getElementById('behind-warn');
+const ghostRgbaCache = {};
+function ghostRgba(color) {
+  let s = ghostRgbaCache[color];
+  if (!s) {
+    s = ghostRgbaCache[color] = 'rgba(' + ((color >> 16) & 255) + ',' + ((color >> 8) & 255) + ',' + (color & 255) + ',0.62)';
+  }
+  return s;
+}
+let radarTick = 0, radarTX = 0, radarTZ = 0, radarHas = false;
+let lastRadarOp = -1;
 function updateRadar() {
-  const el = document.getElementById('radar-arrow');
-  if (game.state !== 'playing' || game.readyTimer > 0) { el.style.opacity = 0; return; }
-  const pg = worldToGrid(player.x, player.z);
-  let tx, tz;
-  if (fruit && fruit.active) {
-    const w = gridToWorld(FRUIT_TILE.x, FRUIT_TILE.y);
-    tx = w.x; tz = w.z;
-  } else {
-    let best = null, bestD = Infinity;
-    let fallback = null, fallbackD = Infinity;
-    let bestPower = null, bestPowerD = Infinity;
-    let nearestHunter = Infinity;
-    for (const g of ghosts) {
-      if (g.state !== 'normal') continue;
-      const d = Math.hypot(g.gx - pg.x, g.gy - pg.y);
-      if (d < nearestHunter) nearestHunter = d;
-    }
-    for (const p of pellets) {
-      if (p.eaten) continue;
-      const d = Math.hypot(p.gx - pg.x, p.gy - pg.y);
-      if (d < fallbackD) { fallbackD = d; fallback = p; }
-      let guarded = false;
+  const el = radarArrowEl;
+  if (game.state !== 'playing' || game.readyTimer > 0) {
+    radarHas = false;
+    if (lastRadarOp !== 0) { el.style.opacity = 0; lastRadarOp = 0; }
+    return;
+  }
+  if ((radarTick++ % 6) === 0) {
+    const pg = worldToGrid(player.x, player.z);
+    radarHas = false;
+    if (fruit && fruit.active) {
+      const w = gridToWorld(FRUIT_TILE.x, FRUIT_TILE.y);
+      radarTX = w.x; radarTZ = w.z; radarHas = true;
+    } else {
+      let best = null, bestD = Infinity;
+      let fallback = null, fallbackD = Infinity;
+      let bestPower = null, bestPowerD = Infinity;
+      let nearestHunter = Infinity;
       for (const g of ghosts) {
         if (g.state !== 'normal') continue;
-        if (Math.hypot(g.gx - p.gx, g.gy - p.gy) < 3) { guarded = true; break; }
+        const d = Math.hypot(g.gx - pg.x, g.gy - pg.y);
+        if (d < nearestHunter) nearestHunter = d;
       }
-      if (!guarded && d < bestD) { bestD = d; best = p; }
-      if (p.power && d < bestPowerD) { bestPowerD = d; bestPower = p; }
+      for (const p of pellets) {
+        if (p.eaten) continue;
+        const d = Math.hypot(p.gx - pg.x, p.gy - pg.y);
+        if (d < fallbackD) { fallbackD = d; fallback = p; }
+        let guarded = false;
+        for (const g of ghosts) {
+          if (g.state !== 'normal') continue;
+          if (Math.hypot(g.gx - p.gx, g.gy - p.gy) < 3) { guarded = true; break; }
+        }
+        if (!guarded && d < bestD) { bestD = d; best = p; }
+        if (p.power && d < bestPowerD) { bestPowerD = d; bestPower = p; }
+      }
+      if (nearestHunter < 3 && bestPower && bestPowerD < 6) { best = bestPower; bestD = bestPowerD; }
+      else if (!best) { best = fallback; bestD = fallbackD; }
+      if (best && bestD >= 1.5) {
+        const w = gridToWorld(best.gx, best.gy);
+        radarTX = w.x; radarTZ = w.z; radarHas = true;
+      }
     }
-    if (nearestHunter < 3 && bestPower && bestPowerD < 6) { best = bestPower; bestD = bestPowerD; }
-    else if (!best) { best = fallback; bestD = fallbackD; }
-    if (!best || bestD < 1.5) { el.style.opacity = 0; return; }
-    const w = gridToWorld(best.gx, best.gy);
-    tx = w.x; tz = w.z;
   }
-  const dx = tx - player.x, dz = tz - player.z;
+  if (!radarHas) {
+    if (lastRadarOp !== 0) { el.style.opacity = 0; lastRadarOp = 0; }
+    return;
+  }
+  if (lastRadarOp !== 0.85) { el.style.opacity = 0.85; lastRadarOp = 0.85; }
+  const dx = radarTX - player.x, dz = radarTZ - player.z;
   const fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);
   const rx = Math.cos(player.yaw), rz = -Math.sin(player.yaw);
-  el.style.opacity = 0.85;
   el.style.transform = 'rotate(' + Math.atan2(dx * rx + dz * rz, dx * fx + dz * fz) + 'rad)';
 }
 function updateDangerSides() {
@@ -1844,19 +1876,20 @@ function updateDangerSides() {
     }
   }
   const now = performance.now();
-  const paint = (id, cue, flip) => {
-    const el = document.getElementById(id);
+  const paint = (el, cue, flip, cache) => {
     if (!cue) { el.style.opacity = 0; return; }
     const urgent = 5 - cue.dist;
     const pulse = 0.72 + 0.28 * (0.5 + 0.5 * Math.sin(now * (0.004 + urgent * 0.002)));
     el.style.opacity = Math.min(0.82, cue.strength * pulse * 1.35);
-    const hex = cue.color.toString(16).padStart(6, '0');
-    const r = parseInt(hex.slice(0, 2), 16), g = parseInt(hex.slice(2, 4), 16), b = parseInt(hex.slice(4, 6), 16);
-    el.style.background = 'linear-gradient(to ' + (flip ? 'left' : 'right') + ', rgba(' + r + ',' + g + ',' + b + ',0.62), transparent)';
+    if (cache.color !== cue.color) {
+      cache.color = cue.color;
+      el.style.background = 'linear-gradient(to ' + (flip ? 'left' : 'right') + ', ' + ghostRgba(cue.color) + ', transparent)';
+    }
   };
-  paint('danger-left', left, false);
-  paint('danger-right', right, true);
+  paint(dangerLeftEl, left, false, paintCacheL);
+  paint(dangerRightEl, right, true, paintCacheR);
 }
+const paintCacheL = { color: -1 }, paintCacheR = { color: -1 };
 const LEVEL_THEMES = [
   { color: 0xffffff, emissive: 0x2424ff },
   { color: 0xffc0ff, emissive: 0xaa33ff },
@@ -2189,7 +2222,7 @@ function updateBehindWarn() {
   }
   const op = danger > 0 ? 0.4 + danger * 0.6 : 0;
   if (op !== lastBehindOpacity) {
-    document.getElementById('behind-warn').style.opacity = op;
+    behindWarnEl.style.opacity = op;
     lastBehindOpacity = op;
   }
 }
@@ -2236,7 +2269,7 @@ function drawMinimap() {
   for (const g of ghosts) {
     if (g.state === 'inHouse' || g.state === 'exiting') continue;
     mmCtx.fillStyle = g.state === 'frightened' ? (Math.floor(performance.now() / 200) % 2 ? '#ffffff' : '#3344ff')
-      : g.state === 'eaten' ? '#8899ff' : '#' + g.def.color.toString(16).padStart(6, '0');
+      : g.state === 'eaten' ? '#8899ff' : ghostColor(g);
     mmCtx.beginPath();
     mmCtx.arc((g.gx + 0.5) * cw, (g.gy + 0.5) * ch, 3, 0, Math.PI * 2);
     mmCtx.fill();
@@ -2517,11 +2550,10 @@ function loop() {
     updateDanger();
     updateDangerSides();
     updateBehindWarn();
-    const ff = document.getElementById('fright-flash');
-    if (ff) ff.style.opacity = (game.frightPunch || 0) * 0.6;
+    if (frightFlashEl) frightFlashEl.style.opacity = (game.frightPunch || 0) * 0.6;
   }
   if ((mmTick++ & (LOWFX ? 3 : 1)) === 0) drawMinimap();
-  if ((proxTick++ & 1) === 0) drawProxMap();
+  if ((proxTick++ & 3) === 0) drawProxMap();
   if (game.state === 'playing' || game.state === 'dying') WSG.tick(frameDt);
   if (player.moving || player.chomp > 0.05) drawChomp();
   updatePacmanDeath(frameDt);
