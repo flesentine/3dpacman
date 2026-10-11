@@ -101,7 +101,9 @@
 
   /* Chomp overlay (your Pac-Man mouth) */
   #chomp { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); z-index: 9; pointer-events: none; }
-  #hud canvas, #center-msg canvas, #behind-warn canvas, #sens-flash canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
+  #hud canvas, #center-msg canvas, #behind-warn canvas, #sens-flash canvas, #coach-hint canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
+  #coach-hint { position: fixed; bottom: 176px; left: 50%; transform: translateX(-50%);
+    z-index: 11; pointer-events: none; opacity: 0; transition: opacity .3s; }
   #center-msg canvas { filter: drop-shadow(0 0 6px #fcfc00); }
 
   #behind-warn { position: fixed; bottom: 132px; left: 50%; transform: translateX(-50%);
@@ -251,6 +253,7 @@
   <canvas id="chomp" width="180" height="120"></canvas>
   <canvas id="proxmap" width="192" height="192"></canvas>
   <div id="center-msg"></div>
+  <div id="coach-hint"></div>
   <div id="behind-warn">BEHIND YOU!</div>
   <div id="touch-ui">
     <div id="stick-zone"><div id="stick-knob"></div></div>
@@ -306,6 +309,9 @@
     <div class="crt-band"></div>
     <h1 id="gameover-title"></h1>
     <div class="final" id="gameover-score"></div>
+    <div class="final" id="gameover-recap"></div>
+    <div class="final" id="gameover-recap2"></div>
+    <button id="share-btn" class="menu-btn">SHARE SCORE</button>
     <div class="blink" id="gameover-prompt"></div>
   </div>
 

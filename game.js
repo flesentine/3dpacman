@@ -1062,6 +1062,11 @@ function canStand(wx, wz) {
 }
 
 function updatePlayer(dt) {
+  runStats.time += dt;
+  if (!coachSeen) {
+    coachT += dt;
+    if (coachT > 40) { markCoached(); hideCoach(); }
+  }
   let ix = 0, iz = 0;
   if (keys['KeyW'] || keys['ArrowUp']) iz += 1;
   if (keys['KeyS'] || keys['ArrowDown']) iz -= 1;
@@ -1074,6 +1079,7 @@ function updatePlayer(dt) {
     player.pitch = 0;
   }
   player.moving = (ix !== 0 || iz !== 0);
+  if (!coachSeen && coachStep === 0 && player.moving) { coachStep = 1; showCoach('FOLLOW THE ARROW'); }
 
   const wantSprint = (keys['ShiftLeft'] || keys['ShiftRight'] || touchSprint) && player.moving;
   let sprinting = false;
@@ -1170,6 +1176,7 @@ function updatePlayer(dt) {
   for (const p of pellets) {
     if (p.eaten || p.gx !== g.x || p.gy !== g.y) continue;
     p.eaten = true; hidePellet(p); pelletCount--;
+    runStats.pellets++;
     if (p.power) {
       game.score += 50;
       if (game.frightTimer > 0) {
@@ -1180,6 +1187,7 @@ function updatePlayer(dt) {
       game.ghostCombo = 0;
       game.frightPunch = 1.0;
       buzz([30, 30, 60]);
+      if (!coachSeen && coachStep <= 1) { coachStep = 2; showCoach('GHOSTS FEAR YOU - EAT THEM'); }
       game.frightTick = 0;
       spawnBurst(player.x, TILE * 0.6, player.z, 0xffdd66);
       game.hitstop = Math.max(game.hitstop, 0.05);
@@ -1289,7 +1297,7 @@ class Ghost {
     this.setVisual('normal');
   }
   get speed() {
-    const base = Math.min(5.5, 4.1 + (game.level - 1) * 0.3);
+    const base = Math.min(5.5, 4.1 + (game.level - 1) * 0.3) * (game.assist || 1);
     if (this.state === 'eaten') return base * 2.0;
     if (this.state === 'frightened') return base * 0.6;
     if (this.def.name === 'blinky') {
@@ -1514,7 +1522,16 @@ const game = {
   hitstop: 0, heartTimer: 0, graceTimer: 0, riserTimer: 0,
   frightPunch: 0, stingTimer: 0, jingleTimer: 0, windTimer: 0, magnetTimer: 0,
   sprintTimer: 0, frightTick: 0,
+  assist: 0, deathsOnLevel: 0,
 };
+const runStats = { pellets: 0, ghosts: 0, bestCombo: 0, closeCalls: 0, time: 0 };
+let coachStep = 0, coachT = 0;
+let coachSeen = false;
+try { coachSeen = localStorage.getItem('pacman3d_coached') === '1'; } catch (e) { /* ignore */ }
+function markCoached() {
+  coachSeen = true;
+  try { localStorage.setItem('pacman3d_coached', '1'); } catch (e) { /* ignore */ }
+}
 function updateDangerAudio(dt) {
   if (player.invuln > 0 || game.frightTimer > 0) return;
   let minD = Infinity, swarm = 0;
@@ -1746,6 +1763,19 @@ function showCenterMsg(text, dur) {
   if (dur) showCenterMsg._t = setTimeout(() => { centerMsg.style.opacity = 0; }, dur);
 }
 function hideCenterMsg() { centerMsg.style.opacity = 0; clearTimeout(showCenterMsg._t); }
+const coachHint = document.getElementById('coach-hint');
+function showCoach(text) {
+  if (coachSeen || !coachHint) return;
+  setPixelText(coachHint, text, '#8af', 16, window.innerWidth - 64);
+  coachHint.style.opacity = 1;
+  clearTimeout(showCoach._t);
+  showCoach._t = setTimeout(hideCoach, 2600);
+}
+function hideCoach() {
+  if (!coachHint) return;
+  coachHint.style.opacity = 0;
+  clearTimeout(showCoach._t);
+}
 
 function updateRadar() {
   const el = document.getElementById('radar-arrow');
@@ -1885,6 +1915,9 @@ function startGame() {
   touchSprint = false;
   { const sb = document.getElementById('touch-sprint'); if (sb) sb.classList.remove('active'); }
   game.stingTimer = 0; game.windTimer = 0; game.magnetTimer = 0; game.sprintTimer = 0; game.frightTick = 0; game.jingleTimer = 4.1;
+  game.assist = 0; game.deathsOnLevel = 0;
+  runStats.pellets = 0; runStats.ghosts = 0; runStats.bestCombo = 0; runStats.closeCalls = 0; runStats.time = 0;
+  coachStep = 0; coachT = 0;
   resetFruit();
   applyLevelTheme();
   startScreen.classList.add('hidden');
@@ -1923,6 +1956,7 @@ function nextLevel() {
   game.readyTimer = 1.5; game.graceTimer = 8;
   game.resumeState = null; game.lockWatch = 1.5;
   game.stingTimer = 0; game.windTimer = 0; game.magnetTimer = 0; game.sprintTimer = 0; game.frightTick = 0; game.jingleTimer = 4.1;
+  game.assist = 0; game.deathsOnLevel = 0;
   resetFruit();
   applyLevelTheme();
   game.state = 'playing';
@@ -1943,6 +1977,8 @@ function playerDied() {
   game.state = 'dying';
   game.deathTimer = 2.5;
   game.lives--;
+  game.deathsOnLevel++;
+  if (game.deathsOnLevel >= 3) game.assist = 0.9;
   const tip = KILLER_TIPS[game.lastKiller] || 'KEEP MOVING';
   showCenterMsg((game.lastKiller ? game.lastKiller.toUpperCase() + ' GOT YOU!' : 'OUCH!') + ' ' + tip, 1400);
   hideFruit();
@@ -1963,7 +1999,10 @@ function afterDeath() {
     AudioEngine.gameOver();
     setPixelText(document.getElementById('gameover-title'), 'GAME OVER', '#fc0000', 64, window.innerWidth - 32);
     setPixelText(document.getElementById('gameover-score'), 'SCORE ' + game.score + ' HIGH ' + game.high, '#fcfc00', 24, window.innerWidth - 32);
-    setPixelText(document.getElementById('gameover-prompt'), 'CLICK TO PLAY AGAIN', '#ffffff', 20, window.innerWidth - 32);
+    const mm = Math.floor(runStats.time / 60), ss = String(Math.floor(runStats.time % 60)).padStart(2, '0');
+    setPixelText(document.getElementById('gameover-recap'), 'PELLETS ' + runStats.pellets + ' GHOSTS ' + runStats.ghosts, '#8af', 16, window.innerWidth - 32);
+    setPixelText(document.getElementById('gameover-recap2'), 'BEST X' + Math.max(1, runStats.bestCombo) + ' CLOSE ' + runStats.closeCalls + ' TIME ' + mm + ':' + ss, '#8af', 16, window.innerWidth - 32);
+    document.getElementById('share-btn').textContent = 'SHARE SCORE';
     gameoverScreen.classList.remove('hidden');
   } else {
     resetPlayer();
@@ -2072,6 +2111,8 @@ function checkGhostCollisions(dt) {
           showCenterMsg('CLOSE CALL! +25', 800);
           AudioEngine.closeCall();
           buzz(40);
+          runStats.closeCalls++;
+          if (!coachSeen && coachStep <= 2) { coachStep = 3; showCoach('THAT WAS CLOSE +25'); markCoached(); }
           updateHUD();
         }
       }
@@ -2082,6 +2123,8 @@ function checkGhostCollisions(dt) {
       g.setVisual('eaten');
       g.nmArmed = false;
       game.ghostCombo++;
+      runStats.ghosts++;
+      runStats.bestCombo = Math.max(runStats.bestCombo, game.ghostCombo);
       const pts = 200 * Math.pow(2, game.ghostCombo - 1);
       game.score += pts;
       showCenterMsg(String(pts) + (game.ghostCombo >= 4 ? ' RAMPAGE!' : game.ghostCombo >= 3 ? ' TRIPLE!' : ''), 700);
@@ -2521,6 +2564,75 @@ document.getElementById('sens-down').addEventListener('click', e => {
 document.getElementById('sens-up').addEventListener('click', e => {
   e.stopPropagation();
   adjustSens(0.15);
+});
+function blitText(g, str, x, y, color, sc) {
+  str = String(str).toUpperCase();
+  g.fillStyle = color;
+  let cx = x;
+  for (const ch of str) {
+    const gl = (typeof PIXEL_FONT !== 'undefined' && (PIXEL_FONT[ch] || PIXEL_FONT[' '])) || null;
+    if (ch !== ' ' && gl) {
+      for (let yy = 0; yy < 8; yy++) for (let xx = 0; xx < 8; xx++) {
+        if ((gl[yy] >> (7 - xx)) & 1) g.fillRect(cx + xx * sc, y + yy * sc, sc, sc);
+      }
+    }
+    cx += (ch === ' ' ? 4 : 8) * sc;
+  }
+  return cx;
+}
+function makeScoreCard() {
+  const cv = document.createElement('canvas');
+  cv.width = 480; cv.height = 300;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#050510';
+  g.fillRect(0, 0, 480, 300);
+  g.strokeStyle = '#2424ff'; g.lineWidth = 6;
+  g.strokeRect(8, 8, 464, 284);
+  g.fillStyle = '#fcfc00';
+  g.beginPath();
+  g.moveTo(110, 150);
+  g.arc(110, 150, 62, 0.5, Math.PI * 2 - 0.5);
+  g.closePath();
+  g.fill();
+  blitText(g, 'PAC-MAN 3D', 200, 60, '#fcfc00', 4);
+  blitText(g, 'SCORE ' + game.score, 200, 116, '#ffffff', 4);
+  blitText(g, 'LEVEL ' + game.level, 200, 172, '#8af', 3);
+  blitText(g, 'HIGH ' + game.high, 200, 212, '#8af', 3);
+  return cv;
+}
+async function shareScore() {
+  const btn = document.getElementById('share-btn');
+  const url = location.href.split(/[?#]/)[0];
+  const text = 'I scored ' + game.score + ' on PAC-MAN 3D! Can you beat it?';
+  try {
+    const blob = await new Promise(res => makeScoreCard().toBlob(res, 'image/png'));
+    const file = new File([blob], 'pacman3d-score.png', { type: 'image/png' });
+    if (blob && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: 'PAC-MAN 3D', text: text + ' ' + url });
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+  }
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'PAC-MAN 3D', text: text + ' ' + url });
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+  }
+  try {
+    await navigator.clipboard.writeText(text + ' ' + url);
+    btn.textContent = 'COPIED!';
+    setTimeout(() => { btn.textContent = 'SHARE SCORE'; }, 1500);
+  } catch (e) { /* ignore */ }
+}
+document.getElementById('share-btn').addEventListener('click', e => {
+  e.stopPropagation();
+  AudioEngine.resume();
+  AudioEngine.click();
+  shareScore();
 });
 const mobileSettings = document.getElementById('mobile-settings');
 mobileSettings.addEventListener('click', e => e.stopPropagation());
