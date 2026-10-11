@@ -1957,6 +1957,7 @@ function afterDeath() {
   WSG.stopAll();
   if (game.lives <= 0) {
     game.state = 'gameOver';
+    pauseScreen.classList.add('hidden');
     document.exitPointerLock();
     releaseWake();
     AudioEngine.gameOver();
